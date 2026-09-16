@@ -1,0 +1,883 @@
+# John the Ripper — My Learning Journey
+
+## Overview
+
+I completed the TryHackMe **John the Ripper — The Basics** room and practised John's different password-cracking techniques.
+
+The practical work covered:
+
+* Basic wordlist cracking
+* Hash identification
+* MD5 / SHA-1 / SHA-256 / SHA-512 formats
+* NTLM/NTHash
+* `/etc/shadow`
+* Single Crack mode
+* Custom rules
+* ZIP archives
+* RAR archives
+* SSH private-key passwords
+
+I also made several mistakes during the practical work. I documented them below because they helped me understand John's syntax instead of just memorising commands.
+
+---
+
+# Task 04 — Basic Hash Cracking
+
+## Hash identification
+
+I used:
+
+```bash
+python3 hash-id.py
+```
+
+I also downloaded the hash identifier script with:
+
+```bash
+wget https://gitlab.com/kalilinux/packages/hash-identifier/-/raw/kali/master/hash-id.py
+```
+
+Then I checked John's available formats:
+
+```bash
+john --list=formats
+```
+
+To search for a format:
+
+```bash
+john --list=formats | grep -iF "MD5"
+```
+
+### What I learned
+
+`grep -iF` means:
+
+* `-i` = ignore case
+* `-F` = fixed-string matching
+
+---
+
+## My format attempts
+
+I tried:
+
+```bash
+john --format=md5 --wordlist=/usr/share/wordlists/rockyou.txt hash_to_crack.txt
+```
+
+and:
+
+```bash
+john --format=raw-md5 --wordlist=/usr/share/wordlists/rockyou.txt hash_to_crack.txt
+```
+
+The important lesson was that John's format name must match the type of hash being supplied.
+
+For raw MD5, the relevant format was:
+
+```bash
+--format=raw-md5
+```
+
+I initially confused `md5` and `raw-md5`.
+
+### SHA-1
+
+I searched:
+
+```bash
+john --list=formats | grep -iF "SHA-1"
+john --list=formats | grep -iF "SHA"
+john --list=formats | grep -iF "SHA1"
+```
+
+Then used:
+
+```bash
+john --format=raw-SHA1 --wordlist=/usr/share/wordlists/rockyou.txt hash2.txt
+```
+
+### SHA-256
+
+```bash
+john --list=formats | grep -iF "SHA256"
+```
+
+Then:
+
+```bash
+john --format=raw-SHA256 --wordlist=/usr/share/wordlists/rockyou.txt hash3.txt
+```
+
+### SHA-512
+
+```bash
+john --list=formats | grep -iF "SHA512"
+```
+
+Then:
+
+```bash
+john --format=raw-SHA512 --wordlist=/usr/share/wordlists/rockyou.txt hash4.txt
+```
+
+I also searched for Whirlpool:
+
+```bash
+john --list=formats | grep -iF "whirepool"
+```
+
+### Mistake
+
+I typed:
+
+```bash
+grep -iF "whirepool"
+```
+
+The word was misspelled.
+
+I corrected it to:
+
+```bash
+grep -iF "Whirlpool"
+```
+
+Then:
+
+```bash
+john --format=whirlpool --wordlist=/usr/share/wordlists/rockyou.txt hash4.txt
+```
+
+### Why this mistake happened
+
+It was simply a spelling mistake in the search term. `grep` was not searching John's formats incorrectly; I was asking it to search for the wrong word.
+
+---
+
+# Task 05 — NTLM / NTHash
+
+I first inspected the file:
+
+```bash
+cat ntlm.txt
+```
+
+I also used:
+
+```bash
+python3 hash-id.py
+```
+
+Initially, I tried MD5 formats:
+
+```bash
+john --format=md5 --wordlist=/usr/share/wordlists/rockyou.txt ntlm.txt
+```
+
+and:
+
+```bash
+john --format=raw-MD5 --wordlist=/usr/share/wordlists/rockyou.txt ntlm.txt
+```
+
+### Mistake
+
+The hash was an NTLM/NTHash type, not an MD5 hash.
+
+So using an MD5 format was a **hash-format identification mistake**.
+
+I then searched John's formats and used:
+
+```bash
+john --format=NT --wordlist=/usr/share/wordlists/rockyou.txt ntlm.txt
+```
+
+### Lesson
+
+Do not choose the John format just because the hash looks like another hexadecimal hash.
+
+First identify the hash type, then choose the corresponding John format.
+
+---
+
+# Task 06 — `/etc/shadow`
+
+I entered the Task06 directory:
+
+```bash
+cd /home/user/John-the-Ripper-The-Basics/Task06
+```
+
+I checked the files:
+
+```bash
+ls
+```
+
+I inspected the hash files:
+
+```bash
+cat etc_hash.txt
+cat etc_hashes.txt
+```
+
+I also experimented with the hash identifier.
+
+---
+
+## Unshadow
+
+I used:
+
+```bash
+unshadow local_passwd local_shadow > unshadowed.txt
+```
+
+Then checked the generated file:
+
+```bash
+cat unshadowed.txt
+```
+
+The idea was:
+
+```text
+local_passwd
+     +
+local_shadow
+     ↓
+unshadow
+     ↓
+unshadowed.txt
+```
+
+---
+
+## Cracking
+
+I used:
+
+```bash
+john --wordlist=/usr/share/wordlists/rockyou.txt --format=sha512crypt unshadowed.txt
+```
+
+I also tried:
+
+```bash
+john --wordlist=/usr/share/wordlists/rockyou.txt unshadowed.txt
+```
+
+The first command explicitly specified the format.
+
+---
+
+## Mistakes while experimenting
+
+I tried:
+
+```bash
+john --wordlist=/usr/share/wordlists/rockyou.txt unshadowed.txt --shadow
+```
+
+and:
+
+```bash
+john --shadow unshadowed.txt
+```
+
+These were incorrect experiments because `--shadow` was not the option needed for displaying the cracked password from the generated `unshadowed.txt`.
+
+The correct display option was:
+
+```bash
+john --show unshadowed.txt
+```
+
+### Important difference
+
+```text
+--show
+↓
+show already cracked passwords
+
+--shadow
+↓
+not the option I needed for this task
+```
+
+I also tried:
+
+```bash
+john --show /home/user/src/john/run/john.pot
+```
+
+This was another misunderstanding.
+
+`john.pot` is John's password-result storage file; it is not normally the input file you give to `--show`.
+
+The useful form is:
+
+```bash
+john --show unshadowed.txt
+```
+
+---
+
+# Task 07 — Single Crack Mode
+
+I entered:
+
+```bash
+cd ~/John-the-Ripper-The-Basics/Task07
+```
+
+Then inspected:
+
+```bash
+ls
+cat hash07.txt
+```
+
+I used:
+
+```bash
+python3 hash-id.py
+```
+
+I attempted:
+
+```bash
+john --single --format=raw-MD5 hash07.txt
+```
+
+The important concept here was that Single Crack mode needs the username associated with the hash.
+
+The room's required structure is:
+
+```text
+Joker:<hash>
+```
+
+---
+
+## Mistake: Putting the hash filename after the username
+
+I tried:
+
+```bash
+john --single --format=raw-MD5 Joker:hash07.txt
+```
+
+### Why this was wrong
+
+`Joker:hash07.txt` tells John that the literal text after `:` is part of the supplied data.
+
+But `hash07.txt` is a **filename**, not the hash itself.
+
+The file should contain:
+
+```text
+Joker:<actual-hash>
+```
+
+Then John should be given the filename:
+
+```bash
+john --single --format=raw-MD5 file.txt
+```
+
+I eventually created a file and used:
+
+```bash
+nano file.txt
+```
+
+then:
+
+```bash
+john --single --format=raw-MD5 file.txt
+```
+
+### Lesson
+
+There are two separate things:
+
+```text
+file name
+    ↓
+file contents
+    ↓
+Joker:<hash>
+```
+
+Do not confuse the filename with the hash stored inside it.
+
+---
+
+# Task 09 — ZIP Cracking
+
+I entered:
+
+```bash
+cd ~/John-the-Ripper-The-Basics/Task09
+```
+
+Then checked:
+
+```bash
+ls
+```
+
+I discovered `zip2john`.
+
+---
+
+## My incorrect attempts
+
+I initially experimented with:
+
+```bash
+zip2john -o secure.zip > hash.txt
+```
+
+```bash
+zip2john -s secure.zip > hash.txt
+```
+
+```bash
+zip2john -c secure.zip > hash.txt
+```
+
+These were unnecessary because the basic command already did what I needed.
+
+The correct command was:
+
+```bash
+zip2john secure.zip > hash.txt
+```
+
+Then:
+
+```bash
+john --wordlist=/usr/share/wordlists/rockyou.txt hash.txt
+```
+
+And:
+
+```bash
+john --show hash.txt
+```
+
+---
+
+## Mistake: Giving the ZIP directly to John
+
+I tried:
+
+```bash
+john --wordlist=/usr/share/wordlists/rockyou.txt secure.zip
+```
+
+### Why it was wrong
+
+John needs the ZIP converted into a John-readable hash first.
+
+Correct flow:
+
+```text
+secure.zip
+   ↓
+zip2john
+   ↓
+ziphash.txt
+   ↓
+john
+```
+
+Not:
+
+```text
+secure.zip
+   ↓
+john
+```
+
+---
+
+## Mistake: `--worlist`
+
+I tried:
+
+```bash
+john --worlist=usr/share/wordlists/rockyou.txt secure.zip
+```
+
+### Why it was wrong
+
+The option is:
+
+```bash
+--wordlist=
+```
+
+not:
+
+```bash
+--worlist=
+```
+
+I also omitted the `/` before `usr` in that attempt.
+
+Correct:
+
+```bash
+--wordlist=/usr/share/wordlists/rockyou.txt
+```
+
+---
+
+## Extracting the ZIP
+
+After cracking the password, I used:
+
+```bash
+unzip secure.zip
+```
+
+Then:
+
+```bash
+ls
+cd zippy
+ls
+cat flag.txt
+```
+
+This confirmed that cracking the password and extracting the archive are two separate steps.
+
+---
+
+# Task 10 — RAR Cracking
+
+I entered:
+
+```bash
+cd ~/John-the-Ripper-The-Basics/Task10
+```
+
+Then:
+
+```bash
+ls
+```
+
+I used:
+
+```bash
+/opt/john/rar2john secure.rar > rar.txt
+```
+
+Then:
+
+```bash
+cat rar.txt
+```
+
+And:
+
+```bash
+john --wordlist=/usr/share/wordlists/rockyou.txt rar.txt
+```
+
+## Extraction attempts
+
+I tried:
+
+```bash
+rar secure.rar
+```
+
+and:
+
+```bash
+unrar secure.rar
+```
+
+Then used:
+
+```bash
+unrar x secure.rar
+```
+
+### Correct extraction command
+
+```bash
+unrar x secure.rar
+```
+
+`x` tells `unrar` to extract the files while preserving the archive's directory structure.
+
+---
+
+# Task 11 — SSH Private-Key Password
+
+I entered:
+
+```bash
+cd ~/John-the-Ripper-The-Basics/Task11/
+```
+
+Then:
+
+```bash
+ls
+```
+
+I used:
+
+```bash
+ssh2john id_rsa > m.txt
+```
+
+I also used the Python version:
+
+```bash
+python3 /opt/john/ssh2john.py id_rsa > m.txt
+```
+
+Both approaches convert the private key into data John can work with.
+
+Then:
+
+```bash
+john --wordlist=/usr/share/wordlists/rockyou.txt m.txt
+```
+
+---
+
+# My John Workflow
+
+After completing these tasks, the overall workflow became:
+
+```text
+1. Identify what I am cracking
+             ↓
+2. If necessary, convert it
+             ↓
+3. Identify the hash format
+             ↓
+4. Choose John's format
+             ↓
+5. Choose wordlist / single mode / custom rule
+             ↓
+6. Run John
+             ↓
+7. Use --show to display recovered password
+             ↓
+8. If it is an archive/key, use the password on it
+```
+
+## Conversion tools I learned
+
+```text
+/etc/shadow → unshadow
+ZIP         → zip2john
+RAR         → rar2john
+SSH key     → ssh2john
+```
+
+## Most useful commands I learned
+
+```bash
+john --list=formats
+```
+
+```bash
+john --show hash.txt
+```
+
+```bash
+john --wordlist=/usr/share/wordlists/rockyou.txt hash.txt
+```
+
+```bash
+john --format=raw-md5 --wordlist=/usr/share/wordlists/rockyou.txt hash.txt
+```
+
+```bash
+john --single --format=raw-md5 file.txt
+```
+
+```bash
+john --rule=THMRules ...
+```
+
+```bash
+unshadow local_passwd local_shadow > unshadowed.txt
+```
+
+```bash
+zip2john secure.zip > hash.txt
+```
+
+```bash
+/opt/john/rar2john secure.rar > rar.txt
+```
+
+```bash
+ssh2john id_rsa > m.txt
+```
+
+---
+
+# Mistakes I Should Remember
+
+### 1. Wrong hash format
+
+I tried MD5 for an NTLM hash.
+
+**Reason:** I had not correctly matched the hash type with John's format.
+
+---
+
+### 2. Spelling error in `grep`
+
+I wrote:
+
+```bash
+grep -iF "whirepool"
+```
+
+instead of:
+
+```bash
+grep -iF "Whirlpool"
+```
+
+**Reason:** simple spelling mistake.
+
+---
+
+### 3. Confusing `--show` with other options
+
+I experimented with:
+
+```bash
+--shadow
+```
+
+when what I wanted was:
+
+```bash
+--show
+```
+
+**Reason:** I wanted to display the already-cracked result, but used the wrong option.
+
+---
+
+### 4. Confusing filename with hash contents
+
+I tried:
+
+```bash
+Joker:hash07.txt
+```
+
+**Reason:** I treated the filename as if it were the actual hash.
+
+For Single Crack mode, the file itself should contain:
+
+```text
+Joker:<actual-hash>
+```
+
+---
+
+### 5. Giving ZIP directly to John
+
+I tried:
+
+```bash
+john ... secure.zip
+```
+
+**Reason:** I skipped the required conversion step.
+
+Correct:
+
+```text
+secure.zip → zip2john → hash file → john
+```
+
+---
+
+### 6. Typing `--worlist`
+
+I used:
+
+```bash
+--worlist=
+```
+
+instead of:
+
+```bash
+--wordlist=
+```
+
+**Reason:** spelling/typing mistake.
+
+---
+
+### 7. Using unnecessary `zip2john` options
+
+I experimented with:
+
+```bash
+zip2john -o
+zip2john -s
+zip2john -c
+```
+
+before using the straightforward command:
+
+```bash
+zip2john secure.zip > hash.txt
+```
+
+**Reason:** I was testing options instead of first following the basic syntax given by the room.
+
+---
+
+# Final Learning
+
+The biggest thing I learned from this room was not just individual commands.
+
+It was understanding the pattern:
+
+```text
+Different password-protected source
+              ↓
+     Convert/prepare data
+              ↓
+      John-readable input
+              ↓
+       Choose attack mode
+              ↓
+         Crack password
+```
+
+John's syntax becomes much easier once I know:
+
+```text
+What is my input?
+What format is it?
+Does it need conversion?
+Which John mode am I using?
+Where is my wordlist?
+```
+
+That is the core workflow I want to remember from this room.
